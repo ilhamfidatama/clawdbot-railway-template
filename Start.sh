@@ -3,6 +3,7 @@
 ################################################################################
 # OpenClaw Startup Script untuk Railway
 # Didesain untuk menjalankan OpenClaw gateway di container environment
+# UPDATED: Kompatibel dengan OpenClaw v2026.3.8 config format
 ################################################################################
 
 set -e  # Exit jika ada error
@@ -57,11 +58,15 @@ WORKSPACE_DIR="/data/workspace"
 # Gateway mode: "local" atau "remote"
 GATEWAY_MODE="local"
 
+# Gateway bind mode untuk v2026.3.8: "lan" (bukan "0.0.0.0")
+GATEWAY_BIND="lan"
+
 # Timeout untuk health check (detik)
 HEALTH_CHECK_TIMEOUT=30
 
 log_divider
 echo -e "${BLUE}🦞 OPENCLAW STARTUP SCRIPT 🦞${NC}"
+echo -e "${BLUE}Version: OpenClaw v2026.3.8${NC}"
 log_divider
 
 # ============================================================================
@@ -95,10 +100,10 @@ else
 fi
 
 # ============================================================================
-# STEP 3: VERIFIKASI DAN SETUP KONFIGURASI
+# STEP 3: VERIFIKASI DAN SETUP KONFIGURASI (v2026.3.8 FORMAT)
 # ============================================================================
 
-log_info "Step 3: Setup konfigurasi OpenClaw..."
+log_info "Step 3: Setup konfigurasi OpenClaw v2026.3.8..."
 
 if [ -f "${CONFIG_FILE}" ]; then
     log_warning "  File config sudah ada"
@@ -107,32 +112,38 @@ if [ -f "${CONFIG_FILE}" ]; then
     log_success "  Backup dibuat"
 fi
 
-# Create config baru
-log_info "  Membuat config baru dengan port: ${PORT}"
+# ============================================================================
+# PENTING: Config format untuk OpenClaw v2026.3.8
+# ============================================================================
+# ✅ Format BENAR:
+# - gateway.mode: "local" atau "remote"
+# - gateway.bind: "lan" (BUKAN "0.0.0.0")
+# - Jangan include: "port", "wrapper" (sudah deprecated)
+#
+# ❌ Format LAMA (tidak support lagi):
+# - gateway.bind: "0.0.0.0"
+# - Keys: "port", "wrapper"
+# ============================================================================
 
-cat > "${CONFIG_FILE}" <<EOF
+# Create config baru dengan format v2026.3.8
+log_info "  Membuat config baru dengan format v2026.3.8"
+
+cat > "${CONFIG_FILE}" <<'EOF'
 {
-  "port": ${PORT},
-  "wrapper": {
-    "node": "v22.22.2",
-    "port": ${PORT},
-    "publicPortEnv": "${PORT}",
-    "stateDir": "${CONFIG_DIR}",
-    "workspaceDir": "${WORKSPACE_DIR}",
-    "configured": true
-  },
   "gateway": {
-    "mode": "${GATEWAY_MODE}",
-    "bind": "0.0.0.0"
+    "mode": "local",
+    "bind": "lan"
   }
 }
 EOF
 
 log_success "  Config file dibuat: ${CONFIG_FILE}"
 
-# Verifikasi config
+# Verifikasi config dibuat dengan benar
 if [ -f "${CONFIG_FILE}" ]; then
     log_success "  ✓ Config file verified"
+    log_info "  Config content:"
+    cat "${CONFIG_FILE}" | sed 's/^/    /'
 else
     log_error "  ✗ Gagal membuat config file!"
     exit 1
@@ -144,49 +155,39 @@ fi
 
 log_info "Step 4: Menjalankan OpenClaw doctor..."
 
-if openclaw doctor --fix; then
+# Wait sebentar agar config file di-detect
+sleep 1
+
+if openclaw doctor --fix 2>&1; then
     log_success "  Doctor fix berhasil"
 else
+    # Jangan exit, warning saja
     log_warning "  Doctor fix menghasilkan warning (melanjutkan...)"
 fi
 
 log_info "  Hasil doctor check:"
-openclaw doctor 2>&1 | sed 's/^/    /'
+openclaw doctor 2>&1 | sed 's/^/    /' || true
 
 # ============================================================================
-# STEP 5: VALIDASI PORT
+# STEP 5: VERIFIKASI CONFIG SETELAH DOCTOR
 # ============================================================================
 
-log_info "Step 5: Validasi port ${PORT}..."
+log_info "Step 5: Verifikasi config setelah doctor..."
 
-# Fungsi untuk cek port (menggunakan nc atau bash)
-check_port() {
-    if command -v nc &> /dev/null; then
-        nc -z 127.0.0.1 $1 2>/dev/null && return 0 || return 1
-    elif command -v timeout &> /dev/null; then
-        timeout 1 bash -c "echo >/dev/tcp/127.0.0.1/$1" 2>/dev/null && return 0 || return 1
-    else
-        return 1
-    fi
-}
-
-if check_port "${PORT}"; then
-    log_warning "  Port ${PORT} sedang terpakai"
-    log_info "  Mencoba port alternatif..."
+if [ -f "${CONFIG_FILE}" ]; then
+    log_info "  Config final:"
+    cat "${CONFIG_FILE}" | sed 's/^/    /'
     
-    for ALT_PORT in 3001 3002 8000 8001 5000; do
-        if ! check_port "${ALT_PORT}"; then
-            log_success "  Port ${ALT_PORT} tersedia, switch menggunakan port ini"
-            PORT="${ALT_PORT}"
-            
-            # Update config dengan port baru
-            sed -i "s/\"port\": [0-9]*,/\"port\": ${PORT},/g" "${CONFIG_FILE}"
-            break
-        fi
-    done
+    # Check format
+    if grep -q '"bind".*"lan"' "${CONFIG_FILE}"; then
+        log_success "  ✓ Config format v2026.3.8 correct"
+    else
+        log_warning "  ⚠ Config bind format mungkin berubah"
+    fi
+else
+    log_error "  ✗ Config file hilang!"
+    exit 1
 fi
-
-log_success "  Port ${PORT} siap digunakan"
 
 # ============================================================================
 # STEP 6: INFORMASI STARTUP
@@ -196,7 +197,8 @@ log_divider
 log_info "📊 INFORMASI STARTUP:"
 log_info "  - Port: ${PORT}"
 log_info "  - Gateway Mode: ${GATEWAY_MODE}"
-log_info "  - Config: ${CONFIG_FILE}"
+log_info "  - Gateway Bind: ${GATEWAY_BIND} (v2026.3.8 format)"
+log_info "  - Config File: ${CONFIG_FILE}"
 log_info "  - Workspace: ${WORKSPACE_DIR}"
 log_info "  - Environment: Railway Container"
 log_divider
@@ -216,16 +218,22 @@ echo "████████████████████████�
 echo "█                                                           █"
 echo "█  🦞 OPENCLAW GATEWAY STARTING 🦞                        █"
 echo "█                                                           █"
-echo "█  Listening on: http://0.0.0.0:${PORT}                     █"
+echo "█  Version: OpenClaw v2026.3.8                             █"
 echo "█  Gateway Mode: ${GATEWAY_MODE}                              █"
+echo "█  Gateway Bind: ${GATEWAY_BIND}                                █"
+echo "█  Port: ${PORT}                                             █"
 echo "█                                                           █"
 echo "█  Press CTRL+C untuk stop                                 █"
 echo "█                                                           █"
 echo "███████████████████████████████████████████████████████████"
 echo -e "${NC}"
 
+log_info "Starting gateway in 2 seconds..."
+sleep 2
+
 # Start gateway dalam foreground
 # Menggunakan exec agar process ini replace shell script
+log_info "Launching: openclaw gateway start"
 exec openclaw gateway start
 
 # Note: Jika sampai sini, berarti gateway error atau exit

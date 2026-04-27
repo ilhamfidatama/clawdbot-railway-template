@@ -79,7 +79,10 @@ RUN printf '%s\n' '#!/usr/bin/env bash' 'exec node /openclaw/dist/entry.js "$@"'
 
 COPY src ./src
 
-# PERBAIKAN 1: Copy startup script
+# ============================================================================
+# COPY STARTUP SCRIPT (Updated for v2026.3.8)
+# ============================================================================
+# Copy the updated Start.sh yang sudah support format config v2026.3.8
 COPY Start.sh /app/Start.sh
 RUN chmod +x /app/Start.sh
 
@@ -93,10 +96,13 @@ RUN chmod +x /app/Start.sh
 # If we force a different port, deployments can come up but the domain will route elsewhere.
 EXPOSE 8080
 
-# PERBAIKAN 2: Health check untuk monitor gateway status
+# Health check untuk monitor gateway status
 # Cek setiap 30 detik, timeout 10 detik, start setelah 40 detik, fail setelah 3 kali
+# Note: Health endpoint mungkin berbeda di v2026.3.8, adjust jika perlu
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD curl -f http://localhost:${PORT:-8080}/health || exit 1
+  CMD curl -f http://localhost:${PORT:-8080}/setup/healthz 2>/dev/null || \
+      curl -f http://localhost:${PORT:-8080}/health 2>/dev/null || \
+      exit 1
 
 # ============================================================================
 # ENTRYPOINT & CMD
@@ -105,10 +111,9 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # Ensure PID 1 reaps zombies and forwards signals.
 ENTRYPOINT ["tini", "--"]
 
-# PERBAIKAN 3: Jalankan startup script BUKAN src/server.js
-# Script ini akan:
-# 1. Setup config OpenClaw
-# 2. Run doctor --fix
+# Run startup script yang akan:
+# 1. Setup config OpenClaw dengan format v2026.3.8
+# 2. Run openclaw doctor --fix
 # 3. Start gateway di foreground
 CMD ["/app/Start.sh"]
 
@@ -128,3 +133,8 @@ CMD ["/app/Start.sh"]
 #   - PORT (default: 8080) - port yang akan digunakan OpenClaw
 #   - NODE_ENV (default: production) - untuk production atau development
 #   - OPENCLAW_GIT_REF (default: v2026.3.8) - versi OpenClaw yang digunakan
+#
+# Notes untuk Railway:
+#   - Dockerfile ini compatible dengan v2026.3.8
+#   - Config format sudah di-update di Start.sh
+#   - Health check endpoint mungkin perlu adjustment jika berubah
