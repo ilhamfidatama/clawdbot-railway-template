@@ -111,11 +111,11 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # Ensure PID 1 reaps zombies and forwards signals.
 ENTRYPOINT ["tini", "--"]
 
-# Run startup script yang akan:
-# 1. Setup config OpenClaw dengan format v2026.3.8
-# 2. Run openclaw doctor --fix
-# 3. Start gateway di foreground
-CMD ["/app/Start.sh"]
+# Run the Node.js wrapper server which:
+# 1. Listens on $PORT and serves /setup/healthz for Railway healthchecks
+# 2. Spawns the OpenClaw gateway in foreground mode on an internal port
+# 3. Proxies gateway traffic and provides a setup UI at /setup
+CMD ["node", "src/server.js"]
 
 # ============================================================================
 # DOCKER BUILD & RUN NOTES
