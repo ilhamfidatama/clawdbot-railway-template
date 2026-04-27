@@ -80,8 +80,8 @@ RUN printf '%s\n' '#!/usr/bin/env bash' 'exec node /openclaw/dist/entry.js "$@"'
 COPY src ./src
 
 # PERBAIKAN 1: Copy startup script
-COPY start.sh /app/start.sh
-RUN chmod +x /app/start.sh
+COPY Start.sh /app/Start.sh
+RUN chmod +x /app/Start.sh
 
 # ============================================================================
 # KONFIGURASI PORT & HEALTH CHECK
@@ -110,7 +110,7 @@ ENTRYPOINT ["tini", "--"]
 # 1. Setup config OpenClaw
 # 2. Run doctor --fix
 # 3. Start gateway di foreground
-CMD ["/app/start.sh"]
+CMD ["/app/Start.sh"]
 
 # ============================================================================
 # DOCKER BUILD & RUN NOTES
