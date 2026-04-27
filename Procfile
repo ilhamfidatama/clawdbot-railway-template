@@ -1,1 +1,1 @@
-web: openclaw doctor --fix && openclaw gateway start
+web: bash start.sh

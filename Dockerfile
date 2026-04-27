@@ -49,6 +49,7 @@ RUN apt-get update \
     tini \
     python3 \
     python3-venv \
+    curl \
   && rm -rf /var/lib/apt/lists/*
 
 # `openclaw update` expects pnpm. Provide it in the runtime image.
@@ -78,12 +79,52 @@ RUN printf '%s\n' '#!/usr/bin/env bash' 'exec node /openclaw/dist/entry.js "$@"'
 
 COPY src ./src
 
+# PERBAIKAN 1: Copy startup script
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
+# ============================================================================
+# KONFIGURASI PORT & HEALTH CHECK
+# ============================================================================
+
 # The wrapper listens on $PORT.
 # IMPORTANT: Do not set a default PORT here.
 # Railway injects PORT at runtime and routes traffic to that port.
 # If we force a different port, deployments can come up but the domain will route elsewhere.
 EXPOSE 8080
 
+# PERBAIKAN 2: Health check untuk monitor gateway status
+# Cek setiap 30 detik, timeout 10 detik, start setelah 40 detik, fail setelah 3 kali
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD curl -f http://localhost:${PORT:-8080}/health || exit 1
+
+# ============================================================================
+# ENTRYPOINT & CMD
+# ============================================================================
+
 # Ensure PID 1 reaps zombies and forwards signals.
 ENTRYPOINT ["tini", "--"]
-CMD ["node", "src/server.js"]
+
+# PERBAIKAN 3: Jalankan startup script BUKAN src/server.js
+# Script ini akan:
+# 1. Setup config OpenClaw
+# 2. Run doctor --fix
+# 3. Start gateway di foreground
+CMD ["/app/start.sh"]
+
+# ============================================================================
+# DOCKER BUILD & RUN NOTES
+# ============================================================================
+# Build:
+#   docker build -t openclaw:latest .
+#
+# Run Local:
+#   docker run -p 3000:8080 \
+#     -e PORT=8080 \
+#     -v openclaw-data:/data \
+#     openclaw:latest
+#
+# Environment Variables yang penting:
+#   - PORT (default: 8080) - port yang akan digunakan OpenClaw
+#   - NODE_ENV (default: production) - untuk production atau development
+#   - OPENCLAW_GIT_REF (default: v2026.3.8) - versi OpenClaw yang digunakan
